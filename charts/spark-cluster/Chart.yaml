@@ -1,0 +1,6 @@
+apiVersion: v2
+name: spark-cluster
+description: Simple Apache Spark Standalone cluster (master + workers) for Kubernetes
+type: application
+version: 0.2.0
+appVersion: "3.5.9"

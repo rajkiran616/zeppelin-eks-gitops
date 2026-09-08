@@ -1,0 +1,29 @@
+.DS_Store
+*.swp
+*.tmp
+.env
+.env.*
+*-secret.yaml
+.idea/
+.vscode/
+*.pem
+*.key
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+terraform.tfvars
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Local Zeppelin notebooks (VFS hostPath)
+local-data/notebooks/**
+!local-data/notebooks/.gitkeep
+# Local app secret env file
+local-data/app.env

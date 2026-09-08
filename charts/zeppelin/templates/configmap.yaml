@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zeppelin.fullname" . }}-config
+  labels:
+    {{- include "zeppelin.labels" . | nindent 4 }}
+data:
+  zeppelin-site.xml: |
+    <?xml version="1.0"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+      <property>
+        <name>zeppelin.server.addr</name>
+        <value>0.0.0.0</value>
+      </property>
+      <property>
+        <name>zeppelin.server.port</name>
+        <value>8080</value>
+      </property>
+      <property>
+        <name>zeppelin.notebook.storage</name>
+        {{- if eq .Values.notebooks.backend "vfs" }}
+        <value>org.apache.zeppelin.notebook.repo.VFSNotebookRepo</value>
+        {{- else }}
+        <value>org.apache.zeppelin.notebook.repo.S3NotebookRepo</value>
+        {{- end }}
+      </property>
+      {{- if eq .Values.notebooks.backend "vfs" }}
+      <property>
+        <name>zeppelin.notebook.dir</name>
+        <value>{{ .Values.notebooks.localDir }}</value>
+      </property>
+      {{- else }}
+      <property>
+        <name>zeppelin.notebook.s3.bucket</name>
+        <value>{{ .Values.notebooks.s3Bucket }}</value>
+      </property>
+      <property>
+        <name>zeppelin.notebook.s3.user</name>
+        <value>{{ .Values.notebooks.s3Prefix }}</value>
+      </property>
+      <property>
+        <name>zeppelin.notebook.s3.endpoint</name>
+        <value>{{ .Values.notebooks.s3Endpoint }}</value>
+      </property>
+      <property>
+        <name>zeppelin.notebook.s3.timeout</name>
+        <value>120000</value>
+      </property>
+      {{- end }}
+      <property>
+        <name>zeppelin.anonymous.allowed</name>
+        <value>{{ .Values.anonymousAllowed | ternary "true" "false" }}</value>
+      </property>
+      <property>
+        <name>zeppelin.ssl</name>
+        <value>false</value>
+      </property>
+    </configuration>
+
+  zeppelin-env.sh: |
+    #!/bin/bash
+    export AWS_REGION={{ .Values.notebooks.region | quote }}
+    export AWS_DEFAULT_REGION={{ .Values.notebooks.region | quote }}
+    export ZEPPELIN_ADDR=0.0.0.0
+    export ZEPPELIN_PORT=8080
+    export SPARK_HOME=${SPARK_HOME:-/opt/spark}
+    export MASTER={{ .Values.spark.master | quote }}
+    export SPARK_SUBMIT_OPTIONS="--master {{ .Values.spark.master }} \
+      --deploy-mode {{ .Values.spark.deployMode }} \
+      --conf spark.driver.cores={{ .Values.spark.driverCores }} \
+      --conf spark.driver.memory={{ .Values.spark.driverMemory }} \
+      --conf spark.executor.instances={{ .Values.spark.executorInstances }} \
+      --conf spark.executor.cores={{ .Values.spark.executorCores }} \
+      --conf spark.executor.memory={{ .Values.spark.executorMemory }} \
+      --conf spark.eventLog.enabled={{ .Values.spark.eventLogEnabled }} \
+{{- if .Values.spark.eventLogDir }}
+      --conf spark.eventLog.dir={{ .Values.spark.eventLogDir }} \
+{{- end }}
+      --conf spark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.WebIdentityTokenCredentialsProvider"
+
+  interpreter.json: |
+    {
+      "interpreterSettings": {
+        "spark": {
+          "id": "spark",
+          "name": "spark",
+          "group": "spark",
+          "properties": {
+            "master": {
+              "name": "master",
+              "value": {{ .Values.spark.master | quote }},
+              "type": "string"
+            },
+            "spark.submit.deployMode": {
+              "name": "spark.submit.deployMode",
+              "value": {{ .Values.spark.deployMode | quote }},
+              "type": "string"
+            },
+            "SPARK_HOME": {
+              "name": "SPARK_HOME",
+              "value": "/opt/spark",
+              "type": "string"
+            }
+          },
+          "status": "READY",
+          "option": {
+            "remote": true,
+            "perNoteSession": false,
+            "perNoteProcess": false
+          }
+        }
+      }
+    }

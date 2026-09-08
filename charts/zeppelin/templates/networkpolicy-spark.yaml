@@ -1,0 +1,42 @@
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.spark.enabled .Values.rbac.create -}}
+{{- $np := .Values.networkPolicy.spark -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ default (printf "%s-spark" (include "zeppelin.fullname" .)) $np.name }}
+  namespace: {{ .Values.rbac.sparkJobNamespace }}
+  labels:
+    app.kubernetes.io/name: spark
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: zeppelin-platform
+    app.kubernetes.io/component: spark-network-policy
+    {{- if .Values.environment }}
+    app.kubernetes.io/environment: {{ .Values.environment | quote }}
+    {{- end }}
+    {{- with $np.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    {{- with $np.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if $np.podSelector }}
+  podSelector:
+    {{- toYaml $np.podSelector | nindent 4 }}
+  {{- else }}
+  podSelector: {}
+  {{- end }}
+  policyTypes:
+    {{- toYaml $np.policyTypes | nindent 4 }}
+  {{- with $np.ingress }}
+  ingress:
+    {{- tpl (toYaml .) $ | nindent 4 }}
+  {{- end }}
+  {{- with $np.egress }}
+  egress:
+    {{- tpl (toYaml .) $ | nindent 4 }}
+  {{- end }}
+{{- end }}

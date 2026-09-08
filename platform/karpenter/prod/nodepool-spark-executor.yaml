@@ -1,0 +1,133 @@
+# Prod Spark executors — Spot-first with broad c/m/r diversification (price-capacity optimized).
+# Drivers stay on spark-driver-prod (On-Demand).
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: spark-executor-prod
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  weight: 80
+  limits:
+    cpu: "1000"
+    memory: 4000Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
+    budgets:
+      - nodes: "20%"
+  template:
+    metadata:
+      labels:
+        workload.apache.org/component: spark-executor
+        environment: prod
+        nodeclass: zeppelin-prod
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: zeppelin-prod
+      expireAfter: 168h
+      terminationGracePeriod: 60s
+      taints:
+        - key: workload.apache.org/dedicated
+          value: spark-executor
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot"]
+        # Broad families = more Spot capacity pools (AWS Spot best practice)
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values:
+            - c7i
+            - c6i
+            - m7i
+            - m6i
+            - r7i
+            - r6i
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["2xlarge", "4xlarge", "8xlarge"]
+        - key: karpenter.k8s.aws/instance-hypervisor
+          operator: In
+          values: ["nitro"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values:
+            - REPLACE_ME_AZ_A
+            - REPLACE_ME_AZ_B
+            - REPLACE_ME_AZ_C
+---
+# On-Demand fallback when Spot capacity is exhausted (lower weight than Spot pool).
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: spark-executor-prod-od
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  weight: 20
+  limits:
+    cpu: "256"
+    memory: 1024Gi
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 5m
+    budgets:
+      - nodes: "10%"
+  template:
+    metadata:
+      labels:
+        workload.apache.org/component: spark-executor
+        environment: prod
+        nodeclass: zeppelin-prod
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: zeppelin-prod
+      expireAfter: 720h
+      terminationGracePeriod: 60s
+      taints:
+        - key: workload.apache.org/dedicated
+          value: spark-executor
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["m7i", "m6i", "r7i", "r6i"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["2xlarge", "4xlarge", "8xlarge"]
+        - key: karpenter.k8s.aws/instance-hypervisor
+          operator: In
+          values: ["nitro"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values:
+            - REPLACE_ME_AZ_A
+            - REPLACE_ME_AZ_B
+            - REPLACE_ME_AZ_C

@@ -1,0 +1,126 @@
+# =============================================================================
+# Argo CD ApplicationSet — PROD environment
+# =============================================================================
+#
+# What this creates:
+#   prod-karpenter  → platform/karpenter/prod
+#   prod-spark      → Spark Standalone (master + workers)
+#   prod-zeppelin   → charts/zeppelin + values-prod.yaml
+#
+# Prod NodePools are separate from nonprod (larger instances, driver/executor
+# split). See docs/karpenter.md.
+#
+# Pattern used here:
+#   generators.list     → parameters per app
+#   template            → shared Application fields
+#   templatePatch       → Go template `if/else` for Helm vs directory sources
+#
+# BEFORE APPLY: replace REPLACE_ME_GITOPS_REPO_URL with your Git repo URL.
+# Learn more: docs/argo-applicationsets.md
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: zeppelin-env-prod
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    app.kubernetes.io/environment: prod
+spec:
+  # ---------------------------------------------------------------------------
+  # Enable Go templating ({{.name}} not {{name}})
+  # ---------------------------------------------------------------------------
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  generators:
+    - list:
+        elements:
+          # Wave -1: nodes must exist (or be provisionable) before Zeppelin pods
+          - name: karpenter
+            namespace: karpenter
+            syncWave: "-1"
+            kind: directory
+            path: platform/karpenter/prod
+
+          - name: spark
+            namespace: spark-prod
+            syncWave: "2"
+            kind: helm
+            path: charts/spark-cluster
+            valueFile: apps/spark-cluster/values-prod.yaml
+            releaseName: spark
+
+          - name: zeppelin
+            namespace: zeppelin-prod
+            syncWave: "3"
+            kind: helm
+            path: charts/zeppelin
+            valueFile: apps/zeppelin/values-prod.yaml
+            releaseName: zeppelin
+
+  template:
+    metadata:
+      # Go template: `.name` is the current list element's `name` field
+      name: 'prod-{{.name}}'
+      namespace: argocd
+      labels:
+        app.kubernetes.io/part-of: zeppelin-platform
+        app.kubernetes.io/name: '{{.name}}'
+        app.kubernetes.io/environment: prod
+      annotations:
+        argocd.argoproj.io/sync-wave: '{{.syncWave}}'
+    spec:
+      project: zeppelin
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{.namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+
+  # ---------------------------------------------------------------------------
+  # templatePatch — Go template branching
+  # ---------------------------------------------------------------------------
+  # `eq .kind "helm"` is a Go template function (same idea as Helm charts).
+  # Whatever YAML this block renders is merged into `template.spec`.
+  #
+  # Tip: keep quotes around goTemplate placeholders in YAML string fields:
+  #   path: '{{.path}}'   ✅
+  #   path: {{.path}}     ❌  can break YAML if the value is empty
+  templatePatch: |
+    {{- if eq .kind "helm" }}
+    spec:
+      sources:
+        - repoURL: REPLACE_ME_GITOPS_REPO_URL
+          targetRevision: main
+          ref: values
+        - repoURL: REPLACE_ME_GITOPS_REPO_URL
+          targetRevision: main
+          path: '{{.path}}'
+          helm:
+            releaseName: '{{.releaseName}}'
+            valueFiles:
+              - '$values/{{.valueFile}}'
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
+    {{- else }}
+    spec:
+      source:
+        repoURL: REPLACE_ME_GITOPS_REPO_URL
+        targetRevision: main
+        path: '{{.path}}'
+    {{- end }}

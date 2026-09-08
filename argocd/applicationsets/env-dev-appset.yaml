@@ -1,0 +1,176 @@
+# =============================================================================
+# Argo CD ApplicationSet — DEV environment
+# =============================================================================
+#
+# What is an ApplicationSet?
+#   A controller that *creates* Argo CD Applications for you from a template.
+#   Think: "for each item in my list, stamp out one Application".
+#
+# This file owns DEV only:
+#   - Application `dev-karpenter`  → NodePools / EC2NodeClass (nonprod)
+#   - Application `dev-spark`      → Spark Standalone (master + workers)
+#   - Application `dev-zeppelin`   → Zeppelin Helm release in zeppelin-dev
+#
+# Staging shares the nonprod Karpenter pools (do NOT add Karpenter to staging).
+#
+# BEFORE APPLY: replace REPLACE_ME_GITOPS_REPO_URL with your Git repo URL.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  # Name of *this* ApplicationSet object (lives in the argocd namespace).
+  # The Applications it creates get different names (see template.metadata.name).
+  name: zeppelin-env-dev
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    app.kubernetes.io/environment: dev
+spec:
+  # ---------------------------------------------------------------------------
+  # goTemplate
+  # ---------------------------------------------------------------------------
+  # ApplicationSets support two template engines:
+  #   - Legacy: {{name}}  (fasttemplate) — older docs use this
+  #   - Go templates: {{.name}}  — what we use everywhere in this repo
+  #
+  # goTemplate: true  → use Go's text/template (same syntax as Helm).
+  # Fields from each generator "element" become the template context, e.g.:
+  #   {{.name}}  {{.namespace}}  {{.path}}  {{.kind}}
+  #
+  # missingkey=error → if you typo {{.namme}}, Argo fails loudly instead of
+  # silently inserting "<no value>". Always keep this for team safety.
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  # ---------------------------------------------------------------------------
+  # generators
+  # ---------------------------------------------------------------------------
+  # A generator produces a list of parameter maps. One Application is created
+  # per map. Common generators: list, git, clusters, matrix, merge, pullRequest.
+  #
+  # We use `list` because our apps are known and fixed — easy for beginners.
+  # Each key under `elements` is available in templates as {{.thatKey}}.
+  generators:
+    - list:
+        elements:
+          - name: karpenter
+            namespace: karpenter
+            syncWave: "-1"
+            kind: directory
+            path: platform/karpenter/nonprod
+
+          - name: spark
+            namespace: spark-dev
+            syncWave: "2"
+            kind: helm
+            path: charts/spark-cluster
+            valueFile: apps/spark-cluster/values-dev.yaml
+            releaseName: spark
+
+          - name: zeppelin
+            namespace: zeppelin-dev
+            syncWave: "3"
+            kind: helm
+            path: charts/zeppelin
+            valueFile: apps/zeppelin/values-dev.yaml
+            releaseName: zeppelin
+
+  # ---------------------------------------------------------------------------
+  # template
+  # ---------------------------------------------------------------------------
+  # The "stamp" used for EVERY generated Application. Placeholders like
+  # {{.name}} are filled from the current generator element.
+  #
+  # Shared fields (project, syncPolicy, destination) live here.
+  # Fields that differ by kind (Helm vs directory) go in templatePatch below.
+  template:
+    metadata:
+      # Resulting Application names: "dev-karpenter", "dev-zeppelin"
+      name: 'dev-{{.name}}'
+      # Applications themselves always live in the argocd namespace.
+      namespace: argocd
+      labels:
+        app.kubernetes.io/part-of: zeppelin-platform
+        app.kubernetes.io/name: '{{.name}}'
+        app.kubernetes.io/environment: dev
+      annotations:
+        # Sync waves order *Applications* relative to each other when many
+        # apps sync together. Wave -1 (Karpenter) before wave 3 (Zeppelin).
+        argocd.argoproj.io/sync-wave: '{{.syncWave}}'
+    spec:
+      # Must match an AppProject (see argocd/projects/zeppelin.yaml).
+      # Projects limit which repos / namespaces an Application may touch.
+      project: zeppelin
+
+      destination:
+        # in-cluster API server (same cluster where Argo CD runs).
+        server: https://kubernetes.default.svc
+        # Where workloads are installed — from the generator element.
+        namespace: '{{.namespace}}'
+
+      # -----------------------------------------------------------------------
+      # syncPolicy — how Argo keeps the cluster matching Git
+      # -----------------------------------------------------------------------
+      syncPolicy:
+        automated:
+          # prune: delete cluster objects removed from Git
+          prune: true
+          # selfHeal: revert manual kubectl edits back to Git state
+          selfHeal: true
+        syncOptions:
+          # Create the destination namespace if missing
+          - CreateNamespace=true
+          # Prefer server-side apply (better for CRDs / large objects)
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+
+  # ---------------------------------------------------------------------------
+  # templatePatch (Go template)
+  # ---------------------------------------------------------------------------
+  # Optional YAML *merged* into the template above, evaluated as a Go template.
+  # Use this when Applications need different `source` / `sources` shapes.
+  #
+  # Here:
+  #   kind=helm      → multi-source Helm (chart path + $values ref)
+  #   kind=directory → single Git path of raw manifests
+  #
+  # Multi-source Helm tip:
+  #   First source with `ref: values` does NOT deploy anything — it only
+  #   exposes the repo so valueFiles can use `$values/path/to/file.yaml`.
+  #   That lets values live outside the chart directory.
+  templatePatch: |
+    {{- if eq .kind "helm" }}
+    spec:
+      sources:
+        # Source A: values reference only (ref: values)
+        - repoURL: REPLACE_ME_GITOPS_REPO_URL
+          targetRevision: main
+          ref: values
+        # Source B: the Helm chart to install
+        - repoURL: REPLACE_ME_GITOPS_REPO_URL
+          targetRevision: main
+          path: '{{.path}}'
+          helm:
+            releaseName: '{{.releaseName}}'
+            valueFiles:
+              # $values/… resolves against Source A above
+              - '$values/{{.valueFile}}'
+      # Don't fight HPA / manual replica tweaks on the Deployment
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
+    {{- else }}
+    spec:
+      # Plain Git directory of YAML (EC2NodeClass + NodePool files)
+      source:
+        repoURL: REPLACE_ME_GITOPS_REPO_URL
+        targetRevision: main
+        path: '{{.path}}'
+    {{- end }}

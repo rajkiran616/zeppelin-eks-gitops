@@ -1,0 +1,210 @@
+# Default values for Apache Zeppelin (override per env under apps/zeppelin/).
+
+nameOverride: ""
+fullnameOverride: ""
+
+environment: REPLACE_ME_ENV
+
+image:
+  repository: apache/zeppelin
+  tag: "0.12.1"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+serviceAccount:
+  create: true
+  name: ""
+  # Set per env in apps/zeppelin/values-*.yaml (leave empty for Kind)
+  annotations: {}
+
+rbac:
+  # true only if you still create spark-on-K8s job namespaces from this chart (not needed for standalone)
+  create: false
+  # Namespace of the spark-cluster Helm release (NetworkPolicy peer)
+  sparkJobNamespace: spark-REPLACE_ME_ENV
+
+podSecurityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: zeppelin
+          topologyKey: kubernetes.io/hostname
+
+# Schedule Zeppelin onto Karpenter NodePool (see platform/karpenter/)
+nodeSelector:
+  workload.apache.org/component: zeppelin
+tolerations:
+  - key: workload.apache.org/dedicated
+    operator: Equal
+    value: zeppelin
+    effect: NoSchedule
+
+service:
+  type: ClusterIP
+  port: 8080
+  # Set when type=NodePort (Kind local)
+  nodePort:
+ingress:
+  enabled: true
+  className: alb
+  host: zeppelin-REPLACE_ME_ENV.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REPLACE_ME_REGION:REPLACE_ME_ACCOUNT_ID:certificate/REPLACE_ME_CERT_ID
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/success-codes: "200,302"
+  tls: true
+
+notebooks:
+  # s3 = AWS/S3 (EKS); vfs = local filesystem (Kind / Docker Desktop)
+  backend: s3
+  # S3 notebook repo (shared across replicas for HA)
+  s3Bucket: REPLACE_ME_NOTEBOOK_BUCKET
+  s3Prefix: notebooks/REPLACE_ME_ENV
+  s3Endpoint: s3.REPLACE_ME_REGION.amazonaws.com
+  region: REPLACE_ME_REGION
+  # Used when backend=vfs
+  localDir: /opt/zeppelin/notebook
+  # Volume backing for vfs notebooks
+  volume:
+    # emptyDir | hostPath | pvc
+    type: emptyDir
+    # hostPath: path on the node (Kind: /zeppelin-notebooks via extraMounts)
+    hostPath: ""
+    # pvc: existing claim name in the Zeppelin namespace
+    claimName: ""
+
+spark:
+  # Point at spark-cluster master Service (see charts/spark-cluster)
+  master: spark://spark-master.spark-REPLACE_ME_ENV.svc.cluster.local:7077
+  deployMode: client
+  driverCores: "1"
+  driverMemory: 1g
+  executorInstances: "2"
+  executorCores: "1"
+  executorMemory: 1g
+  eventLogEnabled: false
+  eventLogDir: ""
+
+# No Shiro — UI is anonymous. App credentials use appSecrets (local K8s Secret or AWS SM).
+anonymousAllowed: true
+
+# Optional application secrets (DB URLs, tokens, etc.) — not Zeppelin login.
+appSecrets:
+  enabled: false
+  secretName: zeppelin-app
+  # existing         — you create the K8s Secret (local / BYO)
+  # externalSecrets  — ESO syncs from AWS Secrets Manager (EKS)
+  source: existing
+  # Inject all secret keys as environment variables
+  envFrom: true
+  externalSecrets:
+    refreshInterval: 1h
+    secretStoreName: aws-secrets-manager
+    secretStoreKind: ClusterSecretStore
+    remoteKey: zeppelin/REPLACE_ME_ENV/app
+
+networkPolicy:
+  enabled: true
+
+  # Generic NetworkPolicies: ingress/egress are raw K8s rule lists.
+  # Strings may use Helm tpl, e.g. "{{ .Release.Namespace }}" or
+  # "{{ .Values.rbac.sparkJobNamespace }}".
+  # Append more list items to add rules — no chart template changes needed.
+
+  zeppelin:
+    enabled: true
+    # name: ""                 # optional override
+    # labels: {}
+    # annotations: {}
+    # podSelector: {}           # default = chart selectorLabels
+    policyTypes:
+      - Ingress
+      - Egress
+    ingress:
+      - from:
+          - namespaceSelector: {}
+        ports:
+          - protocol: TCP
+            port: 8080
+    egress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+        ports:
+          - protocol: UDP
+            port: 53
+          - protocol: TCP
+            port: 53
+      - ports:
+          - protocol: TCP
+            port: 443
+          - protocol: TCP
+            port: 6443
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: "{{ .Values.rbac.sparkJobNamespace }}"
+      - ports:
+          - protocol: TCP
+            port: 443
+
+  spark:
+    enabled: false
+    podSelector: {}
+    policyTypes:
+      - Ingress
+      - Egress
+    ingress: []
+    egress: []
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3

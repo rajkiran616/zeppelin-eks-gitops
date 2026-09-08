@@ -1,0 +1,15 @@
+{{- if .Values.ha.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "spark-cluster.masterStatefulSetName" . }}
+  labels:
+    {{- include "spark-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "spark-cluster.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: master
+{{- end }}

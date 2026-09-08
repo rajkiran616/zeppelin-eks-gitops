@@ -1,0 +1,64 @@
+# Prod Spark drivers — On-Demand only (Spot interruption loses the whole job).
+# Aligns with AWS Data on EKS / EMR on EKS Karpenter guidance.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: spark-driver-prod
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  weight: 90
+  limits:
+    cpu: "128"
+    memory: 512Gi
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 15m
+    budgets:
+      - nodes: "10%"
+  template:
+    metadata:
+      labels:
+        workload.apache.org/component: spark-driver
+        environment: prod
+        nodeclass: zeppelin-prod
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: zeppelin-prod
+      expireAfter: 720h
+      terminationGracePeriod: 120s
+      taints:
+        - key: workload.apache.org/dedicated
+          value: spark-driver
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        # Memory-optimized preferred for Spark drivers; m* as fallback diversification
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["r7i", "r6i", "m7i", "m6i"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["2xlarge", "4xlarge", "8xlarge"]
+        - key: karpenter.k8s.aws/instance-hypervisor
+          operator: In
+          values: ["nitro"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values:
+            - REPLACE_ME_AZ_A
+            - REPLACE_ME_AZ_B
+            - REPLACE_ME_AZ_C

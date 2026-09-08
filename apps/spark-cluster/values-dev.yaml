@@ -1,0 +1,65 @@
+environment: dev
+fullnameOverride: spark
+
+image:
+  repository: apache/spark
+  tag: "3.5.9"
+
+# Same HA topology as staging/prod, smaller footprints for nonprod nodes
+ha:
+  enabled: true
+  masters: 2
+  zookeeper:
+    replicaCount: 3
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    nodeSelector:
+      workload.apache.org/component: spark
+    tolerations:
+      - key: workload.apache.org/dedicated
+        operator: Equal
+        value: spark
+        effect: NoSchedule
+    persistence:
+      enabled: true
+      size: 2Gi
+
+master:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector:
+    workload.apache.org/component: spark
+  tolerations:
+    - key: workload.apache.org/dedicated
+      operator: Equal
+      value: spark
+      effect: NoSchedule
+
+worker:
+  replicaCount: 2
+  cores: 2
+  memory: 2g
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 3Gi
+  nodeSelector:
+    workload.apache.org/component: spark
+  tolerations:
+    - key: workload.apache.org/dedicated
+      operator: Equal
+      value: spark
+      effect: NoSchedule

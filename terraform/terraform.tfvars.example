@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (do not commit secrets — this stack no longer creates them).
+#
+#   cp terraform.tfvars.example terraform.tfvars
+
+aws_region           = "us-east-1"
+eks_cluster_name     = "my-eks-cluster"
+notebook_bucket_name = "mycompany-zeppelin-notebooks-123456789012"
+name_prefix          = "zeppelin"
+environments         = ["dev", "staging", "prod"]
+
+# Optional CMK for S3 (+ ESO kms:Decrypt if set)
+# kms_key_arn = "arn:aws:kms:us-east-1:123456789012:key/...."
+
+tags = {
+  Team = "platform"
+}

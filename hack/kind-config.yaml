@@ -1,0 +1,21 @@
+# Kind cluster for local Zeppelin + Spark HA (same architecture as EKS).
+# NOTEBOOKS_HOST_DIR is substituted by hack/kind-up.sh (absolute path).
+# For Docker Desktop Kubernetes, skip this file — see docs/kind-local.md.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: zeppelin
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+    extraMounts:
+      - hostPath: NOTEBOOKS_HOST_DIR
+        containerPath: /zeppelin-notebooks
+        readOnly: false
+  - role: worker
+    extraMounts:
+      - hostPath: NOTEBOOKS_HOST_DIR
+        containerPath: /zeppelin-notebooks
+        readOnly: false

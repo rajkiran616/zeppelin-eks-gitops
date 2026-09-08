@@ -1,0 +1,117 @@
+# Local Kind / Docker Desktop — same topology as EKS envs:
+#   Zeppelin → HA Spark masters (ZooKeeper) → workers
+# Notebooks: local directory (VFS), not S3. No Shiro (anonymous UI).
+# Optional app secrets: local K8s Secret (hack/create-local-app-secret.sh)
+#
+# Kind: hostPath /zeppelin-notebooks is bound from repo local-data/notebooks
+#       via hack/kind-config (see kind-up.sh).
+# Docker Desktop: set notebooks.volume.hostPath to an absolute path on your Mac
+#       (default below works if the repo path is shared with Docker).
+
+environment: kind
+
+replicaCount: 1
+
+podDisruptionBudget:
+  enabled: false
+
+image:
+  repository: apache/zeppelin
+  tag: "0.12.1"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+rbac:
+  create: false
+  sparkJobNamespace: spark-kind
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: NodePort
+  port: 8080
+
+ingress:
+  enabled: false
+
+notebooks:
+  backend: vfs
+  localDir: /opt/zeppelin/notebook
+  region: local
+  volume:
+    type: hostPath
+    # Kind node path (extraMount from local-data/notebooks). Override for Docker Desktop.
+    hostPath: /zeppelin-notebooks
+
+spark:
+  # Same HA pattern as dev/staging/prod
+  master: spark://spark-master-0.spark-master-hs.spark-kind.svc.cluster.local:7077,spark-master-1.spark-master-hs.spark-kind.svc.cluster.local:7077
+  deployMode: client
+  driverCores: "1"
+  driverMemory: 512m
+  executorInstances: "1"
+  executorCores: "1"
+  executorMemory: 512m
+  eventLogEnabled: false
+  eventLogDir: ""
+
+
+networkPolicy:
+  enabled: true
+  zeppelin:
+    enabled: true
+    policyTypes:
+      - Ingress
+      - Egress
+    ingress:
+      - from:
+          - namespaceSelector: {}
+        ports:
+          - protocol: TCP
+            port: 8080
+    egress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+        ports:
+          - protocol: UDP
+            port: 53
+          - protocol: TCP
+            port: 53
+      - ports:
+          - protocol: TCP
+            port: 443
+          - protocol: TCP
+            port: 6443
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: spark-kind
+      - ports:
+          - protocol: TCP
+            port: 7077
+  spark:
+    enabled: false
+
+# No Shiro — open UI. Optional app credentials via local K8s Secret.
+anonymousAllowed: true
+appSecrets:
+  enabled: false
+  secretName: zeppelin-app
+  source: existing
+  envFrom: true
+

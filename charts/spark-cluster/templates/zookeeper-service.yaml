@@ -1,0 +1,25 @@
+{{- if .Values.ha.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "spark-cluster.zookeeperHeadless" . }}
+  labels:
+    {{- include "spark-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: zookeeper
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "spark-cluster.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: zookeeper
+  ports:
+    - name: client
+      port: {{ .Values.ha.zookeeper.clientPort }}
+      targetPort: client
+    - name: quorum
+      port: 2888
+      targetPort: quorum
+    - name: election
+      port: 3888
+      targetPort: election
+{{- end }}

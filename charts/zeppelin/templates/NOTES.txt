@@ -1,0 +1,8 @@
+1. Zeppelin Service: {{ include "zeppelin.fullname" . }}
+2. Spark master: {{ .Values.spark.master }}
+{{- if .Values.appSecrets.enabled }}
+3. App secrets: Secret/{{ .Values.appSecrets.secretName }} (source={{ .Values.appSecrets.source }})
+{{- else }}
+3. App secrets: disabled
+{{- end }}
+4. UI auth: anonymous (no Shiro). Open the Ingress / NodePort host.

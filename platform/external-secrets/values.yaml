@@ -1,0 +1,40 @@
+# External Secrets Operator — shared platform install
+# Chart: https://charts.external-secrets.io  chart: external-secrets
+# Pinned chartVersion in argocd/.../shared-platform-appset.yaml (currently 2.10.0)
+# Requires ClusterSecretStore / ExternalSecret apiVersion: external-secrets.io/v1
+
+installCRDs: true
+
+replicaCount: 2
+
+leaderElect: true
+
+serviceAccount:
+  create: true
+  name: external-secrets
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::REPLACE_ME_ACCOUNT_ID:role/external-secrets"
+
+webhook:
+  create: true
+  replicaCount: 2
+
+certController:
+  create: true
+  replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+securityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

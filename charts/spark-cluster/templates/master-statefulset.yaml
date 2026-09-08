@@ -1,0 +1,110 @@
+{{- if .Values.ha.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "spark-cluster.masterStatefulSetName" . }}
+  labels:
+    {{- include "spark-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  serviceName: {{ include "spark-cluster.masterHeadless" . }}
+  replicas: {{ .Values.ha.masters }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "spark-cluster.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: master
+  template:
+    metadata:
+      labels:
+        {{- include "spark-cluster.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: master
+    spec:
+      serviceAccountName: {{ include "spark-cluster.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.master.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.master.affinity }}
+      affinity:
+        {{- toYaml .Values.master.affinity | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "spark-cluster.selectorLabels" . | nindent 20 }}
+                    app.kubernetes.io/component: master
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
+      {{- with .Values.master.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: spark-master
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: SPARK_NO_DAEMONIZE
+              value: "true"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SPARK_DAEMON_JAVA_OPTS
+              value: >-
+                -Dspark.deploy.recoveryMode=ZOOKEEPER
+                -Dspark.deploy.zookeeper.url={{ include "spark-cluster.zookeeperUrl" . }}
+                -Dspark.deploy.zookeeper.dir={{ .Values.ha.zookeeperDir }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              HOST="${POD_NAME}.{{ include "spark-cluster.masterHeadless" . }}.${POD_NAMESPACE}.svc.cluster.local"
+              exec /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master \
+                --host "${HOST}" \
+                --port {{ .Values.master.rpcPort }} \
+                --webui-port {{ .Values.master.webUiPort }}
+          ports:
+            - name: spark
+              containerPort: {{ .Values.master.rpcPort }}
+            - name: http
+              containerPort: {{ .Values.master.webUiPort }}
+          readinessProbe:
+            tcpSocket:
+              port: spark
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: spark
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          {{- with .Values.master.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

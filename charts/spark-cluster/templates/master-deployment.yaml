@@ -1,0 +1,84 @@
+{{- if not .Values.ha.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "spark-cluster.fullname" . }}-master
+  labels:
+    {{- include "spark-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  replicas: {{ .Values.master.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "spark-cluster.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: master
+  template:
+    metadata:
+      labels:
+        {{- include "spark-cluster.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: master
+    spec:
+      serviceAccountName: {{ include "spark-cluster.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.master.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.master.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.master.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: spark-master
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: SPARK_NO_DAEMONIZE
+              value: "true"
+          command:
+            - /opt/spark/bin/spark-class
+          args:
+            - org.apache.spark.deploy.master.Master
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "{{ .Values.master.rpcPort }}"
+            - --webui-port
+            - "{{ .Values.master.webUiPort }}"
+          ports:
+            - name: spark
+              containerPort: {{ .Values.master.rpcPort }}
+            - name: http
+              containerPort: {{ .Values.master.webUiPort }}
+          readinessProbe:
+            tcpSocket:
+              port: spark
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: spark
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          {{- with .Values.master.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

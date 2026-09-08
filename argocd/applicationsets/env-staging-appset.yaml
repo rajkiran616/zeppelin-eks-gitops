@@ -1,0 +1,100 @@
+# =============================================================================
+# Argo CD ApplicationSet — STAGING environment
+# =============================================================================
+#
+# Owns STAGING: spark-cluster + Zeppelin (Karpenter nonprod owned by env-dev).
+#
+# BEFORE APPLY: replace REPLACE_ME_GITOPS_REPO_URL with your Git repo URL.
+#
+# Learn more: docs/argo-applicationsets.md
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: zeppelin-env-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    app.kubernetes.io/environment: staging
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  generators:
+    - list:
+        elements:
+          - name: spark
+            namespace: spark-staging
+            syncWave: "2"
+            path: charts/spark-cluster
+            valueFile: apps/spark-cluster/values-staging.yaml
+            releaseName: spark
+          - name: zeppelin
+            namespace: zeppelin-staging
+            syncWave: "3"
+            path: charts/zeppelin
+            valueFile: apps/zeppelin/values-staging.yaml
+            releaseName: zeppelin
+
+  template:
+    metadata:
+      # Becomes Application name: staging-zeppelin
+      name: 'staging-{{.name}}'
+      namespace: argocd
+      labels:
+        app.kubernetes.io/part-of: zeppelin-platform
+        app.kubernetes.io/name: '{{.name}}'
+        app.kubernetes.io/environment: staging
+      annotations:
+        # Controls sync order vs other Applications (higher = later).
+        argocd.argoproj.io/sync-wave: '{{.syncWave}}'
+    spec:
+      # RBAC boundary — must exist (argocd/projects/zeppelin.yaml)
+      project: zeppelin
+
+      # -----------------------------------------------------------------------
+      # sources (multi-source Application) — Go template placeholders
+      # -----------------------------------------------------------------------
+      # Why two sources?
+      #   1) ref: values  → points at the whole Git repo so Helm can load
+      #      value files from apps/zeppelin/ (outside the chart folder).
+      #   2) path: chart  → the actual Helm chart Argo installs.
+      #
+      # {{.path}} and {{.valueFile}} come from the list element above.
+      sources:
+        - repoURL: REPLACE_ME_GITOPS_REPO_URL
+          targetRevision: main
+          ref: values
+        - repoURL: REPLACE_ME_GITOPS_REPO_URL
+          targetRevision: main
+          path: '{{.path}}'
+          helm:
+            releaseName: '{{.releaseName}}'
+            valueFiles:
+              - '$values/{{.valueFile}}'
+
+      destination:
+        # Same EKS cluster that runs Argo CD
+        server: https://kubernetes.default.svc
+        namespace: '{{.namespace}}'
+
+      syncPolicy:
+        automated:
+          prune: true      # remove resources deleted from Git
+          selfHeal: true   # undo drift from manual kubectl changes
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+
+      # Ignore replica count so scaling experiments don't show as OutOfSync
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas

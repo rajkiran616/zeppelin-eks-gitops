@@ -1,0 +1,102 @@
+# Simple Spark Standalone (master + workers). No Spark Operator / CRDs.
+# Optional HA: multiple masters + ZooKeeper recovery (dev/staging/prod).
+# Images: apache/spark (Docker Hub), zookeeper official.
+
+nameOverride: ""
+fullnameOverride: ""
+environment: ""
+
+image:
+  repository: apache/spark
+  tag: "3.5.9"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Single-master mode (ha.enabled=false): Deployment + ClusterIP service.
+# HA mode: StatefulSet masters + ZooKeeper; clients use comma-separated master URL.
+ha:
+  enabled: false
+  # Active/standby masters (must be >= 2 when enabled)
+  masters: 2
+  # ZK path used by Spark recoveryMode=ZOOKEEPER
+  zookeeperDir: /spark
+  zookeeper:
+    image:
+      repository: zookeeper
+      tag: "3.9.5"
+      pullPolicy: IfNotPresent
+    replicaCount: 3
+    clientPort: 2181
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    persistence:
+      enabled: true
+      size: 5Gi
+      storageClass: ""
+    podSecurityContext:
+      fsGroup: 1000
+      runAsUser: 1000
+      runAsNonRoot: true
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+
+master:
+  # Used only when ha.enabled=false
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  webUiPort: 8080
+  rpcPort: 7077
+
+worker:
+  replicaCount: 2
+  cores: 2
+  memory: 2g
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  webUiPort: 8081
+
+service:
+  type: ClusterIP
+
+podSecurityContext:
+  fsGroup: 185
+  runAsUser: 185
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL

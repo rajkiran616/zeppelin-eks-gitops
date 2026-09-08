@@ -1,0 +1,59 @@
+# Non-prod Spark (driver + executor share one pool) — Spot-first, small shapes.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: spark-nonprod
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    environment: nonprod
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  weight: 40
+  limits:
+    cpu: "64"
+    memory: 128Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 2m
+    budgets:
+      - nodes: "100%"
+  template:
+    metadata:
+      labels:
+        workload.apache.org/component: spark
+        environment: nonprod
+        nodeclass: zeppelin-nonprod
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: zeppelin-nonprod
+      expireAfter: 72h
+      terminationGracePeriod: 60s
+      taints:
+        - key: workload.apache.org/dedicated
+          value: spark
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"]
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["c", "m", "r"]
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["4"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["large", "xlarge", "2xlarge"]
+        - key: karpenter.k8s.aws/instance-hypervisor
+          operator: In
+          values: ["nitro"]

@@ -1,0 +1,24 @@
+{{- if .Values.ha.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "spark-cluster.masterHeadless" . }}
+  labels:
+    {{- include "spark-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "spark-cluster.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+  ports:
+    - name: spark
+      port: {{ .Values.master.rpcPort }}
+      targetPort: spark
+      protocol: TCP
+    - name: http
+      port: {{ .Values.master.webUiPort }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

@@ -1,0 +1,84 @@
+# Staging overrides for charts/zeppelin
+environment: staging
+
+replicaCount: 2
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+image:
+  repository: apache/zeppelin
+  tag: "0.12.1"
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::REPLACE_ME_ACCOUNT_ID:role/zeppelin-staging"
+
+rbac:
+  create: false
+  sparkJobNamespace: spark-staging
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+ingress:
+  enabled: true
+  host: zeppelin-staging.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REPLACE_ME_REGION:REPLACE_ME_ACCOUNT_ID:certificate/REPLACE_ME_CERT_ID
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/success-codes: "200,302"
+
+notebooks:
+  s3Bucket: REPLACE_ME_NOTEBOOK_BUCKET
+  s3Prefix: notebooks/staging
+  s3Endpoint: s3.REPLACE_ME_REGION.amazonaws.com
+  region: REPLACE_ME_REGION
+
+spark:
+  # HA: both masters (active/standby via ZooKeeper). Do not use ClusterIP alone.
+  master: spark://spark-master-0.spark-master-hs.spark-staging.svc.cluster.local:7077,spark-master-1.spark-master-hs.spark-staging.svc.cluster.local:7077
+  deployMode: client
+  driverCores: "1"
+  driverMemory: 2g
+  executorInstances: "2"
+  executorCores: "1"
+  executorMemory: 2g
+  eventLogEnabled: false
+  eventLogDir: ""
+
+nodeSelector:
+  workload.apache.org/component: zeppelin
+tolerations:
+  - key: workload.apache.org/dedicated
+    operator: Equal
+    value: zeppelin
+    effect: NoSchedule
+
+
+networkPolicy:
+  enabled: true
+  zeppelin:
+    enabled: true
+  spark:
+    enabled: false
+
+# No Shiro — open UI. App credentials from AWS Secrets Manager via ESO.
+anonymousAllowed: true
+appSecrets:
+  enabled: true
+  secretName: zeppelin-app
+  source: externalSecrets
+  envFrom: true
+  externalSecrets:
+    remoteKey: zeppelin/staging/app
+

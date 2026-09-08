@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zeppelin.fullname" . }}
+  labels:
+    {{- include "zeppelin.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "zeppelin.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "zeppelin.selectorLabels" . | nindent 8 }}
+        {{- include "zeppelin.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "zeppelin.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: zeppelin
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ZEPPELIN_ADDR
+              value: "0.0.0.0"
+            - name: ZEPPELIN_PORT
+              value: "8080"
+            - name: AWS_REGION
+              value: {{ .Values.notebooks.region | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.notebooks.region | quote }}
+          {{- if and .Values.appSecrets.enabled .Values.appSecrets.envFrom }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.appSecrets.secretName }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/zeppelin/conf/zeppelin-site.xml
+              subPath: zeppelin-site.xml
+            - name: config
+              mountPath: /opt/zeppelin/conf/zeppelin-env.sh
+              subPath: zeppelin-env.sh
+            - name: tmp
+              mountPath: /tmp
+            - name: local-repo
+              mountPath: /opt/zeppelin/local-repo
+            - name: logs
+              mountPath: /opt/zeppelin/logs
+            {{- if eq .Values.notebooks.backend "vfs" }}
+            - name: notebooks
+              mountPath: {{ .Values.notebooks.localDir }}
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "zeppelin.fullname" . }}-config
+            defaultMode: 0755
+        - name: tmp
+          emptyDir: {}
+        - name: local-repo
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+        {{- if eq .Values.notebooks.backend "vfs" }}
+        - name: notebooks
+          {{- if eq .Values.notebooks.volume.type "hostPath" }}
+          hostPath:
+            path: {{ required "notebooks.volume.hostPath is required when volume.type=hostPath" .Values.notebooks.volume.hostPath | quote }}
+            type: DirectoryOrCreate
+          {{- else if eq .Values.notebooks.volume.type "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ required "notebooks.volume.claimName is required when volume.type=pvc" .Values.notebooks.volume.claimName }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}

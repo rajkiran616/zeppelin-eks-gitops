@@ -1,0 +1,67 @@
+{{- if .Values.rbac.create -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "zeppelin.fullname" . }}-spark
+  namespace: {{ .Values.rbac.sparkJobNamespace }}
+  labels:
+    {{- include "zeppelin.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["*"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "zeppelin.fullname" . }}-spark
+  namespace: {{ .Values.rbac.sparkJobNamespace }}
+  labels:
+    {{- include "zeppelin.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "zeppelin.fullname" . }}-spark
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "zeppelin.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+  - kind: ServiceAccount
+    name: {{ .Values.spark.driverServiceAccount }}
+    namespace: {{ .Values.rbac.sparkJobNamespace }}
+---
+# Allow Zeppelin to talk to the Kubernetes API (in-cluster spark-submit)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "zeppelin.fullname" . }}-{{ .Release.Namespace }}-api
+  labels:
+    {{- include "zeppelin.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "zeppelin.fullname" . }}-{{ .Release.Namespace }}-api
+  labels:
+    {{- include "zeppelin.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "zeppelin.fullname" . }}-{{ .Release.Namespace }}-api
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "zeppelin.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

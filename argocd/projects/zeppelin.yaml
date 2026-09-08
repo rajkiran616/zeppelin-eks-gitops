@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: zeppelin
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+spec:
+  description: Apache Zeppelin, Spark Standalone, and secrets platform on EKS
+  sourceRepos:
+    - "*"
+  destinations:
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+    - namespace: external-secrets
+      server: https://kubernetes.default.svc
+    - namespace: zeppelin-dev
+      server: https://kubernetes.default.svc
+    - namespace: zeppelin-staging
+      server: https://kubernetes.default.svc
+    - namespace: zeppelin-prod
+      server: https://kubernetes.default.svc
+    - namespace: spark-dev
+      server: https://kubernetes.default.svc
+    - namespace: spark-staging
+      server: https://kubernetes.default.svc
+    - namespace: spark-prod
+      server: https://kubernetes.default.svc
+    - namespace: karpenter
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: external-secrets.io
+      kind: ClusterSecretStore
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: karpenter.sh
+      kind: NodePool
+    - group: karpenter.sh
+      kind: NodeClaim
+    - group: karpenter.k8s.aws
+      kind: EC2NodeClass
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

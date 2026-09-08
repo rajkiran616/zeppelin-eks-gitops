@@ -1,0 +1,15 @@
+{{- if .Values.ha.enabled }}
+HA mode (ZooKeeper recovery):
+  Masters: {{ .Values.ha.masters }} (active/standby via ZK)
+  ZooKeeper: {{ .Values.ha.zookeeper.replicaCount }} pods
+  Master URL (Zeppelin / spark-submit):
+    {{ include "spark-cluster.masterUrl" . }}
+  Do NOT use the ClusterIP svc alone for spark:// — clients need the comma-separated list.
+  Active master UI: port-forward a specific pod, e.g.
+    kubectl port-forward pod/{{ include "spark-cluster.masterStatefulSetName" . }}-0 {{ .Values.master.webUiPort }}:{{ .Values.master.webUiPort }}
+{{- else }}
+Single-master mode:
+  Master URL: {{ include "spark-cluster.masterUrl" . }}
+  UI: kubectl port-forward svc/{{ include "spark-cluster.masterService" . }} {{ .Values.master.webUiPort }}:{{ .Values.master.webUiPort }}
+{{- end }}
+Workers: {{ .Values.worker.replicaCount }} × {{ .Values.worker.cores }} cores / {{ .Values.worker.memory }}

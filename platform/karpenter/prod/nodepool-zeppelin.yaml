@@ -1,0 +1,66 @@
+# Prod Zeppelin UI — On-Demand only, multi-AZ friendly, no Spot churn on notebooks.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: zeppelin-prod
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  weight: 100
+  limits:
+    cpu: "64"
+    memory: 256Gi
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 10m
+    budgets:
+      - nodes: "10%"
+      - schedule: "0 9 * * mon-fri"
+        duration: 8h
+        nodes: "0"
+  template:
+    metadata:
+      labels:
+        workload.apache.org/component: zeppelin
+        environment: prod
+        nodeclass: zeppelin-prod
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: zeppelin-prod
+      expireAfter: 720h
+      terminationGracePeriod: 60s
+      taints:
+        - key: workload.apache.org/dedicated
+          value: zeppelin
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        # Prefer current-gen general-purpose / memory-optimized (Data on EKS style)
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["m7i", "m6i", "r7i", "r6i"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["xlarge", "2xlarge", "4xlarge"]
+        - key: karpenter.k8s.aws/instance-hypervisor
+          operator: In
+          values: ["nitro"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values:
+            - REPLACE_ME_AZ_A
+            - REPLACE_ME_AZ_B
+            - REPLACE_ME_AZ_C

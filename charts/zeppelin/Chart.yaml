@@ -1,0 +1,13 @@
+apiVersion: v2
+name: zeppelin
+description: Highly available Apache Zeppelin on EKS with S3 notebooks and Spark-on-Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.12.1"
+keywords:
+  - zeppelin
+  - spark
+  - notebooks
+maintainers:
+  - name: platform
+    email: platform@example.com

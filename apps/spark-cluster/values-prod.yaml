@@ -1,0 +1,67 @@
+environment: prod
+fullnameOverride: spark
+
+image:
+  repository: apache/spark
+  tag: "3.5.9"
+
+# Production: HA masters + ZooKeeper recovery
+ha:
+  enabled: true
+  masters: 2
+  zookeeper:
+    replicaCount: 3
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    # Colocate ZK with On-Demand master/driver pool
+    nodeSelector:
+      workload.apache.org/component: spark-driver
+    tolerations:
+      - key: workload.apache.org/dedicated
+        operator: Equal
+        value: spark-driver
+        effect: NoSchedule
+    persistence:
+      enabled: true
+      size: 10Gi
+
+master:
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  # Prefer On-Demand spark-driver / spark pool labels in prod
+  nodeSelector:
+    workload.apache.org/component: spark-driver
+  tolerations:
+    - key: workload.apache.org/dedicated
+      operator: Equal
+      value: spark-driver
+      effect: NoSchedule
+
+worker:
+  replicaCount: 3
+  cores: 4
+  memory: 8g
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      cpu: "4"
+      memory: 10Gi
+  nodeSelector:
+    workload.apache.org/component: spark-executor
+  tolerations:
+    - key: workload.apache.org/dedicated
+      operator: Equal
+      value: spark-executor
+      effect: NoSchedule

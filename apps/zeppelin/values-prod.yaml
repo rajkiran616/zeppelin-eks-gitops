@@ -1,0 +1,140 @@
+# Production overrides for charts/zeppelin
+environment: prod
+
+replicaCount: 3
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+image:
+  repository: apache/zeppelin
+  # Pin by digest in real prod after verifying the tag
+  tag: "0.12.1"
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::REPLACE_ME_ACCOUNT_ID:role/zeppelin-prod"
+
+rbac:
+  create: false
+  sparkJobNamespace: spark-prod
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 4Gi
+  limits:
+    cpu: "4"
+    memory: 8Gi
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: zeppelin
+        topologyKey: kubernetes.io/hostname
+
+ingress:
+  enabled: true
+  host: zeppelin.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REPLACE_ME_REGION:REPLACE_ME_ACCOUNT_ID:certificate/REPLACE_ME_CERT_ID
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/success-codes: "200,302"
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=600
+
+notebooks:
+  s3Bucket: REPLACE_ME_NOTEBOOK_BUCKET
+  s3Prefix: notebooks/prod
+  s3Endpoint: s3.REPLACE_ME_REGION.amazonaws.com
+  region: REPLACE_ME_REGION
+
+spark:
+  # HA: both masters (active/standby via ZooKeeper). Do not use ClusterIP alone.
+  master: spark://spark-master-0.spark-master-hs.spark-prod.svc.cluster.local:7077,spark-master-1.spark-master-hs.spark-prod.svc.cluster.local:7077
+  deployMode: client
+  driverCores: "2"
+  driverMemory: 4g
+  executorInstances: "3"
+  executorCores: "2"
+  executorMemory: 4g
+  eventLogEnabled: false
+  eventLogDir: ""
+
+nodeSelector:
+  workload.apache.org/component: zeppelin
+tolerations:
+  - key: workload.apache.org/dedicated
+    operator: Equal
+    value: zeppelin
+    effect: NoSchedule
+
+
+networkPolicy:
+  enabled: true
+  # Prod: replace default "any namespace" UI ingress with a tighter peer list.
+  # Add more list items freely (CIDRs, namespaces, ports).
+  zeppelin:
+    enabled: true
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+        ports:
+          - protocol: TCP
+            port: 8080
+      # Example — uncomment / copy to allow a CIDR:
+      # - from:
+      #     - ipBlock:
+      #         cidr: 10.10.0.0/16
+      #   ports:
+      #     - protocol: TCP
+      #       port: 8080
+    egress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+        ports:
+          - protocol: UDP
+            port: 53
+          - protocol: TCP
+            port: 53
+      - ports:
+          - protocol: TCP
+            port: 443
+          - protocol: TCP
+            port: 6443
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: "{{ .Values.rbac.sparkJobNamespace }}"
+      - ports:
+          - protocol: TCP
+            port: 443
+      # Example — prefer VPC CIDR over open :443:
+      # - to:
+      #     - ipBlock:
+      #         cidr: 10.0.0.0/8
+      #   ports:
+      #     - protocol: TCP
+      #       port: 443
+  spark:
+    enabled: false
+
+# No Shiro — open UI. App credentials from AWS Secrets Manager via ESO.
+anonymousAllowed: true
+appSecrets:
+  enabled: true
+  secretName: zeppelin-app
+  source: externalSecrets
+  envFrom: true
+  externalSecrets:
+    remoteKey: zeppelin/prod/app
+

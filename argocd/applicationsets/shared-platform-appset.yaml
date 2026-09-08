@@ -1,0 +1,118 @@
+# =============================================================================
+# Argo CD ApplicationSet — SHARED PLATFORM (all environments depend on this)
+# =============================================================================
+#
+# Not tied to dev/staging/prod. Installs cluster-wide building blocks once:
+#   shared-external-secrets     → External Secrets Operator (Helm repo chart)
+#   shared-cluster-secret-store → ClusterSecretStore YAML (this Git repo)
+#
+# Spark Standalone is per-env (env-*-appset.yaml → charts/spark-cluster).
+#
+# Two source styles in templatePatch (Go template):
+#   useHelmRepo=true  → pull chart from an external Helm repository
+#   useHelmRepo=false → apply a path of YAML from *this* GitOps repo
+#
+# BEFORE APPLY: replace REPLACE_ME_GITOPS_REPO_URL with your Git repo URL.
+# Learn more: docs/argo-applicationsets.md
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: zeppelin-shared-platform
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    app.kubernetes.io/component: shared-platform
+spec:
+  # Go template mode: placeholders look like {{.name}}, not {{name}}.
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  generators:
+    - list:
+        elements:
+          # -----------------------------------------------------------------
+          # External Secrets Operator — Helm chart from upstream repo
+          # syncWave "0" = install first (CRDs needed by ClusterSecretStore)
+          # Chart 2.x serves external-secrets.io/v1 (not v1beta1).
+          # -----------------------------------------------------------------
+          - name: external-secrets
+            namespace: external-secrets
+            syncWave: "0"
+            chartRepo: https://charts.external-secrets.io
+            chart: external-secrets
+            chartVersion: "2.10.0"
+            valuesPath: platform/external-secrets/values.yaml
+            useHelmRepo: "true"
+
+          # -----------------------------------------------------------------
+          # ClusterSecretStore — plain YAML in this repo (not a Helm chart)
+          # Must sync AFTER the operator (wave 1 > wave 0)
+          # -----------------------------------------------------------------
+          - name: cluster-secret-store
+            namespace: external-secrets
+            syncWave: "1"
+            chartRepo: ""
+            chart: ""
+            chartVersion: ""
+            valuesPath: platform/cluster-secret-store
+            useHelmRepo: "false"
+
+  template:
+    metadata:
+      # Examples: shared-external-secrets, shared-cluster-secret-store
+      name: 'shared-{{.name}}'
+      namespace: argocd
+      labels:
+        app.kubernetes.io/part-of: zeppelin-platform
+        app.kubernetes.io/name: '{{.name}}'
+      annotations:
+        # Lower wave number syncs earlier when Argo syncs many apps together
+        argocd.argoproj.io/sync-wave: '{{.syncWave}}'
+    spec:
+      project: zeppelin
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{.namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+
+  # ---------------------------------------------------------------------------
+  # templatePatch — choose Helm-repo vs Git-directory with Go `if`
+  # ---------------------------------------------------------------------------
+  # Note: useHelmRepo is a *string* ("true"/"false") in the list elements so
+  # comparisons stay simple. `eq .useHelmRepo "true"` is Go template syntax.
+  templatePatch: |
+    {{- if eq .useHelmRepo "true" }}
+    spec:
+      sources:
+        # Values live in our GitOps repo
+        - repoURL: REPLACE_ME_GITOPS_REPO_URL
+          targetRevision: main
+          ref: values
+        # Chart binary comes from the upstream Helm repository
+        - repoURL: '{{.chartRepo}}'
+          chart: '{{.chart}}'
+          targetRevision: '{{.chartVersion}}'
+          helm:
+            valueFiles:
+              - '$values/{{.valuesPath}}'
+    {{- else }}
+    spec:
+      # Raw manifests from a folder in our GitOps repo
+      source:
+        repoURL: REPLACE_ME_GITOPS_REPO_URL
+        targetRevision: main
+        path: '{{.valuesPath}}'
+    {{- end }}

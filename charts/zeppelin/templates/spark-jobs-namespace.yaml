@@ -1,0 +1,38 @@
+{{- if .Values.rbac.create }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.rbac.sparkJobNamespace }}
+  labels:
+    app.kubernetes.io/name: spark-jobs
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: zeppelin-platform
+    app.kubernetes.io/component: spark-jobs
+    {{- if .Values.environment }}
+    app.kubernetes.io/environment: {{ .Values.environment | quote }}
+    {{- end }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spark.driverServiceAccount }}
+  namespace: {{ .Values.rbac.sparkJobNamespace }}
+  labels:
+    app.kubernetes.io/name: spark
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: zeppelin-platform
+    app.kubernetes.io/component: spark-driver
+    {{- if .Values.environment }}
+    app.kubernetes.io/environment: {{ .Values.environment | quote }}
+    {{- end }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    {{- with (index .Values.serviceAccount.annotations "eks.amazonaws.com/role-arn") }}
+    eks.amazonaws.com/role-arn: {{ . | quote }}
+    {{- end }}
+{{- end }}

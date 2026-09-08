@@ -1,0 +1,59 @@
+# Non-prod Zeppelin UI — small On-Demand nodes (stable enough for notebooks, low cost).
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: zeppelin-nonprod
+  labels:
+    app.kubernetes.io/part-of: zeppelin-platform
+    environment: nonprod
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  weight: 50
+  limits:
+    cpu: "32"
+    memory: 64Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+    budgets:
+      - nodes: "50%"
+  template:
+    metadata:
+      labels:
+        workload.apache.org/component: zeppelin
+        environment: nonprod
+        nodeclass: zeppelin-nonprod
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: zeppelin-nonprod
+      expireAfter: 168h
+      terminationGracePeriod: 30s
+      taints:
+        - key: workload.apache.org/dedicated
+          value: zeppelin
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["m", "t"]
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["4"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["large", "xlarge"]
+        - key: karpenter.k8s.aws/instance-hypervisor
+          operator: In
+          values: ["nitro"]

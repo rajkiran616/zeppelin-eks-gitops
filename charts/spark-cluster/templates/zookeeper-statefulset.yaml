@@ -1,0 +1,138 @@
+{{- if .Values.ha.enabled }}
+{{- $zkName := include "spark-cluster.zookeeperName" . -}}
+{{- $zkHs := include "spark-cluster.zookeeperHeadless" . -}}
+{{- $replicas := int .Values.ha.zookeeper.replicaCount -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $zkName }}
+  labels:
+    {{- include "spark-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: zookeeper
+spec:
+  serviceName: {{ $zkHs }}
+  replicas: {{ $replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "spark-cluster.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: zookeeper
+  template:
+    metadata:
+      labels:
+        {{- include "spark-cluster.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: zookeeper
+    spec:
+      {{- with .Values.ha.zookeeper.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ha.zookeeper.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.ha.zookeeper.affinity }}
+      affinity:
+        {{- toYaml .Values.ha.zookeeper.affinity | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "spark-cluster.selectorLabels" . | nindent 20 }}
+                    app.kubernetes.io/component: zookeeper
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
+      {{- with .Values.ha.zookeeper.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: zookeeper
+          image: "{{ .Values.ha.zookeeper.image.repository }}:{{ .Values.ha.zookeeper.image.tag }}"
+          imagePullPolicy: {{ .Values.ha.zookeeper.image.pullPolicy }}
+          {{- with .Values.ha.zookeeper.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: ZOO_4LW_COMMANDS_WHITELIST
+              value: "ruok,srvr,mntr"
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              ORDINAL="${HOSTNAME##*-}"
+              export ZOO_MY_ID=$((ORDINAL + 1))
+              # Official image: local member must use 0.0.0.0 as hostname
+              SERVERS=""
+              {{- range $i := until $replicas }}
+              if [[ "${ORDINAL}" == "{{ $i }}" ]]; then
+                SERVERS+="server.{{ add $i 1 }}=0.0.0.0:2888:3888;2181 "
+              else
+                SERVERS+="server.{{ add $i 1 }}={{ $zkName }}-{{ $i }}.{{ $zkHs }}:2888:3888;2181 "
+              fi
+              {{- end }}
+              export ZOO_SERVERS="${SERVERS}"
+              exec /docker-entrypoint.sh zkServer.sh start-foreground
+          ports:
+            - name: client
+              containerPort: {{ .Values.ha.zookeeper.clientPort }}
+            - name: quorum
+              containerPort: 2888
+            - name: election
+              containerPort: 3888
+          readinessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          {{- with .Values.ha.zookeeper.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: datalog
+              mountPath: /datalog
+      {{- if not .Values.ha.zookeeper.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: datalog
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.ha.zookeeper.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.ha.zookeeper.persistence.storageClass }}
+        storageClassName: {{ .Values.ha.zookeeper.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.ha.zookeeper.persistence.size }}
+    - metadata:
+        name: datalog
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.ha.zookeeper.persistence.storageClass }}
+        storageClassName: {{ .Values.ha.zookeeper.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.ha.zookeeper.persistence.size }}
+  {{- end }}
+{{- end }}
